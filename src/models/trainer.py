@@ -132,14 +132,16 @@ class Trainer(object):
         normalization = 0
         train_iter = train_iter_fct()
 
+
         total_stats = Statistics()
         report_stats = Statistics()
         self._start_report_manager(start_time=total_stats.start_time)
 
         while step <= train_steps:
-
+            print("step",step)
             reduce_counter = 0
             for i, batch in enumerate(train_iter):
+                print("step",step,"batc",i)
                 if self.n_gpu == 0 or (i % self.n_gpu == self.gpu_rank):
 
                     true_batchs.append(batch)

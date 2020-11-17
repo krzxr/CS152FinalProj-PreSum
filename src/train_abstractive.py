@@ -325,7 +325,10 @@ def train_abs_single(args, device_id):
         optim = [optim_bert, optim_dec]
     else:
         optim = [model_builder.build_optim(args, model, checkpoint)]
-
+    for param in model.parameters():
+        param.requires_grad = False
+    for param in model.generator.parameters():
+        param.requires_grad=True
     logger.info(model)
 
     tokenizer = BertTokenizer.from_pretrained('bert-base-uncased', do_lower_case=True, cache_dir=args.temp_dir)
@@ -334,7 +337,7 @@ def train_abs_single(args, device_id):
 
     train_loss = abs_loss(model.generator, symbols, model.vocab_size, device, train=True,
                           label_smoothing=args.label_smoothing)
-
+    
     trainer = build_trainer(args, device_id, model, optim, train_loss)
 
     trainer.train(train_iter_fct, args.train_steps)

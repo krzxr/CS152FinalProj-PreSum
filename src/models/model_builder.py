@@ -63,7 +63,7 @@ def build_optim_bert(args, model, checkpoint):
             beta1=args.beta1, beta2=args.beta2,
             decay_method='noam',
             warmup_steps=args.warmup_steps_bert)
-
+    print(model.named_parameters())
     params = [(n, p) for n, p in list(model.named_parameters()) if n.startswith('bert.model')]
     optim.set_parameters(params)
 

@@ -1,14 +1,15 @@
 #!/usr/bin/env python
 """
-    Main training workflow
+    Inference entrance
 """
 from __future__ import division
-
+import torch
 import argparse
 import os
 from others.logging import init_logger
-from train_abstractive import validate_abs, train_abs, baseline, test_abs, test_text_abs
+from train_abstractive import validate_abs, train_abs, baseline, test_abs, test_text_abs, load_models_abs
 from train_extractive import train_ext, validate_ext, test_ext
+from prepro import data_builder
 
 model_flags = ['hidden_size', 'ff_size', 'heads', 'emb_size', 'enc_layers', 'enc_hidden_size', 'enc_ff_size',
                'dec_layers', 'dec_hidden_size', 'dec_ff_size', 'encoder', 'ff_actv', 'use_interval']
@@ -24,12 +25,11 @@ def str2bool(v):
 
 
 
-
-if __name__ == '__main__':
+def load_model():
     parser = argparse.ArgumentParser()
-    parser.add_argument("-task", default='ext', type=str, choices=['ext', 'abs'])
+    parser.add_argument("-task", default='abs', type=str, choices=['ext', 'abs'])
     parser.add_argument("-encoder", default='bert', type=str, choices=['bert', 'baseline'])
-    parser.add_argument("-mode", default='train', type=str, choices=['train', 'validate', 'test'])
+    parser.add_argument("-mode", default='test', type=str, choices=['train', 'validate', 'test'])
     parser.add_argument("-bert_data_path", default='../../bert_data_new/cnndm')
     parser.add_argument("-model_path", default='../../models/')
     parser.add_argument("-result_path", default='../../results/cnndm')
@@ -43,7 +43,7 @@ if __name__ == '__main__':
     parser.add_argument("-large", type=str2bool, nargs='?',const=True,default=False)
     parser.add_argument("-load_from_extractive", default='', type=str)
 
-    parser.add_argument("-sep_optim", type=str2bool, nargs='?',const=True,default=False)
+    parser.add_argument("-sep_optim", type=str2bool, nargs='?',const=True,default=True)
     parser.add_argument("-lr_bert", default=2e-3, type=float)
     parser.add_argument("-lr_dec", default=2e-3, type=float)
     parser.add_argument("-use_bert_emb", type=str2bool, nargs='?',const=True,default=False)
@@ -75,8 +75,18 @@ if __name__ == '__main__':
     parser.add_argument("-max_length", default=150, type=int)
     parser.add_argument("-max_tgt_len", default=140, type=int)
 
+    # params for preprocessing
+    parser.add_argument("-shard_size", default=2000, type=int)
+    parser.add_argument('-min_src_nsents', default=3, type=int)
+    parser.add_argument('-max_src_nsents', default=100, type=int)
+    parser.add_argument('-min_src_ntokens_per_sent', default=5, type=int)
+    parser.add_argument('-max_src_ntokens_per_sent', default=200, type=int)
+    parser.add_argument('-min_tgt_ntokens', default=5, type=int)
+    parser.add_argument('-max_tgt_ntokens', default=500, type=int)
+    parser.add_argument("-lower", type=str2bool, nargs='?',const=True,default=True)
+    parser.add_argument("-use_bert_basic_tokenizer", type=str2bool, nargs='?',const=True,default=False)
 
-
+ 
     parser.add_argument("-param_init", default=0, type=float)
     parser.add_argument("-param_init_glorot", type=str2bool, nargs='?',const=True,default=True)
     parser.add_argument("-optim", default='adam', type=str)
@@ -94,11 +104,9 @@ if __name__ == '__main__':
     parser.add_argument("-train_steps", default=1000, type=int)
     parser.add_argument("-recall_eval", type=str2bool, nargs='?',const=True,default=False)
 
-    parser.add_argument("-frozen", default=0,type=int)
 
     parser.add_argument('-visible_gpus', default='-1', type=str)
     parser.add_argument('-gpu_ranks', default='0', type=str)
-    parser.add_argument('-log_file', default='../../logs/cnndm.log')
     parser.add_argument('-seed', default=666, type=int)
 
     parser.add_argument("-test_all", type=str2bool, nargs='?',const=True,default=False)
@@ -106,58 +114,45 @@ if __name__ == '__main__':
     parser.add_argument("-test_start_from", default=-1, type=int)
 
     parser.add_argument("-train_from", default='')
-    parser.add_argument("-report_rouge", type=str2bool, nargs='?',const=True,default=True)
-    parser.add_argument("-block_trigram", type=str2bool, nargs='?', const=True, default=True)
 
     args = parser.parse_args()
     args.gpu_ranks = [int(i) for i in range(len(args.visible_gpus.split(',')))]
     args.world_size = len(args.gpu_ranks)
     os.environ["CUDA_VISIBLE_DEVICES"] = args.visible_gpus
 
-    init_logger(args.log_file)
     device = "cpu" if args.visible_gpus == '-1' else "cuda"
     device_id = 0 if device == "cuda" else -1
 
-    if (args.task == 'abs'):
-        if (args.mode == 'train'):
-            train_abs(args, device_id)
-        elif (args.mode == 'validate'):
-            validate_abs(args, device_id)
-        elif (args.mode == 'lead'):
-            baseline(args, cal_lead=True)
-        elif (args.mode == 'oracle'):
-            baseline(args, cal_oracle=True)
-        if (args.mode == 'test'):
-            cp = args.test_from
-            try:
-                step = int(cp.split('.')[-2].split('_')[-1])
-            except:
-                step = 0
-            test_abs(args, device_id, cp, step)
-        elif (args.mode == 'test_text'):
-            cp = args.test_from
-            try:
-                step = int(cp.split('.')[-2].split('_')[-1])
-            except:
-                step = 0
-                test_text_abs(args, device_id, cp, step)
+    print(args.task, args.mode) 
 
-    elif (args.task == 'ext'):
-        if (args.mode == 'train'):
-            train_ext(args, device_id)
-        elif (args.mode == 'validate'):
-            validate_ext(args, device_id)
-        if (args.mode == 'test'):
-            cp = args.test_from
-            try:
-                step = int(cp.split('.')[-2].split('_')[-1])
-            except:
-                step = 0
-            test_ext(args, device_id, cp, step)
-        elif (args.mode == 'test_text'):
-            cp = args.test_from
-            try:
-                step = int(cp.split('.')[-2].split('_')[-1])
-            except:
-                step = 0
-                test_text_abs(args, device_id, cp, step)
+    cp = args.test_from
+
+
+    return args
+def produceDataPair(source,source_upper,types,args):
+    data = []
+    f = open(source+types+".src").read()
+    g = open(source+types+".tgt").read()
+    a = f.split("\n")
+    b = g.split("\n")
+    aa = [i.split("|||||")[0] for i in a]
+    saved = 0
+    for i, src in enumerate(aa):
+        if i%500==0: print(i)
+        tgt = b[i]
+        data.append(data_builder.str_format_to_bert_train_list(src, tgt, args,"")[0]) 
+        if len(data)>saved+1000:
+            torch.save(data[saved:min(saved+1000,len(data))],source_upper+"mn."+types+"."+str(i//1000)+".bert.pt")
+            saved+=1000
+if __name__ == '__main__':
+    args =  load_model()
+    source_upper="./../multi_news/pt/"
+    source = "./../multi_news/multi-news-original/"
+    train = produceDataPair(source,source_upper,"train",args)
+    valid = produceDataPair(source,source_upper,"valid",args)
+
+
+
+
+
+

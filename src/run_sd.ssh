@@ -1,0 +1,2 @@
+python train.py  -task abs -mode train -bert_data_path ./../scienceDaily/pt/sd -dec_dropout 0.2  -model_path ./../models/sd_abs -sep_optim true -lr_bert 0.002 -lr_dec 0.25 -save_checkpoint_steps 50 -batch_size 5000 -train_steps 200 -report_every 3 -accum_count 5 -use_bert_emb true -use_interval true -warmup_steps_bert 20 -warmup_steps_dec 10 -max_pos 512 -visible_gpus -1 -log_file ../logs/abs_bert_sd -train_from ./../models/sd_abs/model_start_100.pt 
+
